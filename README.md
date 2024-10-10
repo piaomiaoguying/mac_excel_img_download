@@ -1,0 +1,2 @@
+# mac_excel_img_download
+适用于Mac电脑的，用于根据excel表格中的图片url地址列批量下载图片到指定文件夹，并按excel中的指定列重命名图片文件
