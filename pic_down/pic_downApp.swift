@@ -7,13 +7,14 @@
 
 import SwiftUI
 
+@main
 struct pic_downApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(width: 400, height: 370)
+                .frame(width: 590, height: 430)
         }
         .commands {
             CommandGroup(replacing: .newItem) { }
@@ -29,18 +30,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let window = NSApplication.shared.windows.first {
             window.title = "图片批量下载器"
-            window.setContentSize(NSSize(width: 400, height: 370))
+            window.setContentSize(NSSize(width: 590, height: 430))
             window.center()
             window.styleMask.remove(.resizable)
-        }
-    }
-}
-
-@main
-struct MainApp {
-    static func main() {
-        NSApplication.shared.run {
-            pic_downApp()
+            window.styleMask.remove(.miniaturizable)
+            window.styleMask.remove(.fullScreen)
         }
     }
 }

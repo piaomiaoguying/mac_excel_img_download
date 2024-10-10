@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		5BBBD8A92CB272BF00129998 /* Algorithms in Frameworks */ = {isa = PBXBuildFile; productRef = 5BBBD8A82CB272BF00129998 /* Algorithms */; };
 		5BBBD8AC2CB2730100129998 /* CoreXLSX in Frameworks */ = {isa = PBXBuildFile; productRef = 5BBBD8AB2CB2730100129998 /* CoreXLSX */; };
-		5BBBD8B12CB2A0C700129998 /* Reachability in Frameworks */ = {isa = PBXBuildFile; productRef = 5BBBD8B02CB2A0C700129998 /* Reachability */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,7 +58,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				5BBBD8AC2CB2730100129998 /* CoreXLSX in Frameworks */,
-				5BBBD8B12CB2A0C700129998 /* Reachability in Frameworks */,
 				5BBBD8A92CB272BF00129998 /* Algorithms in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -123,7 +121,6 @@
 			packageProductDependencies = (
 				5BBBD8A82CB272BF00129998 /* Algorithms */,
 				5BBBD8AB2CB2730100129998 /* CoreXLSX */,
-				5BBBD8B02CB2A0C700129998 /* Reachability */,
 			);
 			productName = pic_down;
 			productReference = 5B59D6872CB261790082B282 /* pic_down.app */;
@@ -210,7 +207,6 @@
 			packageReferences = (
 				5BBBD8A72CB272AA00129998 /* XCRemoteSwiftPackageReference "swift-algorithms" */,
 				5BBBD8AA2CB2730100129998 /* XCRemoteSwiftPackageReference "CoreXLSX" */,
-				5BBBD8B22CB2A25600129998 /* XCRemoteSwiftPackageReference "Kingfisher" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5B59D6882CB261790082B282 /* Products */;
@@ -409,6 +405,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = pic_down/pic_down.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -418,6 +415,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "图片批量下载器";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -436,6 +434,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = pic_down/pic_down.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -445,6 +444,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "图片批量下载器";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -584,14 +584,6 @@
 				minimumVersion = 0.14.2;
 			};
 		};
-		5BBBD8B22CB2A25600129998 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/onevcat/Kingfisher.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 8.0.3;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -604,10 +596,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5BBBD8AA2CB2730100129998 /* XCRemoteSwiftPackageReference "CoreXLSX" */;
 			productName = CoreXLSX;
-		};
-		5BBBD8B02CB2A0C700129998 /* Reachability */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = Reachability;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
