@@ -336,7 +336,7 @@ struct ContentView: View {
                 
                 HStack {
                     Group {
-                        Text("图片下载址")
+                        Text("图片下载地址：第")
                         TextField("", text: $imageUrlColumn)
                             .frame(width: 40)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
