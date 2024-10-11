@@ -19,13 +19,16 @@ class DownloadManager: ObservableObject {
     @Published var previewImagePath: String?
     private var totalItems = 0
     private var completedItems = 0
-    private let queue = DispatchQueue(label: "com.yourapp.downloadQueue", attributes: .concurrent)
+    private let downloadQueue = DispatchQueue(label: "com.yourapp.downloadQueue", attributes: .concurrent)
+    private let downloadGroup = DispatchGroup()
     private var startTime: Date?
     private var downloadTasks: [URLSessionDataTask] = []
     private var isTaskCancelled = false
     private var retryCount: [URL: Int] = [:]
     private let maxRetries = 3
     private var activeDownloads = 0
+    private let semaphore = DispatchSemaphore(value: 3) // 减少并发数
+    private let taskCache = NSCache<NSURL, URLSessionDataTask>()
     
     func startDownload(rows: [CoreXLSX.Row], urlColumnIndex: Int, nameColumnIndex: Int, sharedStrings: SharedStrings?, savePath: String) {
         isDownloading = true
@@ -38,74 +41,195 @@ class DownloadManager: ObservableObject {
         
         addLog("开始下载任务")
         
-        queue.async { [weak self] in
-            let semaphore = DispatchSemaphore(value: 10) // 限制并发数
+        downloadQueue.async { [weak self] in
+            guard let self = self else { return }
             
             for (index, row) in rows.enumerated() {
-                if self?.isTaskCancelled == true {
-                    break
-                }
+                if self.isTaskCancelled { break }
                 
-                semaphore.wait()
+                self.semaphore.wait()
+                self.downloadGroup.enter()
                 
-                self?.queue.async {
-                    do {
-                        try self?.processRow(row: row, urlColumnIndex: urlColumnIndex, nameColumnIndex: nameColumnIndex, rowIndex: index, sharedStrings: sharedStrings, savePath: savePath)
-                    } catch {
-                        self?.addLog("处理第\(index + 2)行时出错: \(error.localizedDescription)")
-                        self?.decrementActiveDownloads()
+                self.downloadQueue.async {
+                    autoreleasepool {
+                        do {
+                            try self.processRow(row: row, urlColumnIndex: urlColumnIndex, nameColumnIndex: nameColumnIndex, rowIndex: index, sharedStrings: sharedStrings, savePath: savePath)
+                        } catch {
+                            self.addLog("处理第\(index + 2)行时出错: \(error.localizedDescription)")
+                        }
+                        
+                        self.semaphore.signal()
+                        self.downloadGroup.leave()
                     }
-                    
-                    semaphore.signal()
                 }
             }
             
-            // 等待所有下载完成
-            self?.queue.async {
-                while self?.activeDownloads ?? 0 > 0 {
-                    Thread.sleep(forTimeInterval: 0.1)
-                }
+            self.downloadGroup.notify(queue: self.downloadQueue) { [weak self] in
                 self?.finishDownload()
             }
         }
     }
     
-    private func processRow(row: CoreXLSX.Row, urlColumnIndex: Int, nameColumnIndex: Int, rowIndex: Int, sharedStrings: SharedStrings?, savePath: String) {
-        let urlCell = row.cells[safe: urlColumnIndex - 1]
-        let nameCell = row.cells[safe: nameColumnIndex - 1]
-        
-        guard let urlValue = getCellValue(urlCell, sharedStrings: sharedStrings) else {
-            addLog("URL单元格为空，跳过第\(rowIndex + 2)行")
-            return
-        }
-        
-        guard let rawNameValue = getCellValue(nameCell, sharedStrings: sharedStrings) else {
-            addLog("文件名单元格为空，跳过第\(rowIndex + 2)行")
-            return
-        }
-        
-        let nameValue = sanitizeFileName(rawNameValue)
-        
-        addLog("处理第\(rowIndex + 2)行: URL=\(urlValue), 文件名=\(nameValue)")
-        
-        if isValidURL(urlValue) {
-            guard let url = URL(string: urlValue) else {
-                addLog("无效的URL: \(urlValue)")
+    private func processRow(row: CoreXLSX.Row, urlColumnIndex: Int, nameColumnIndex: Int, rowIndex: Int, sharedStrings: SharedStrings?, savePath: String) throws {
+        autoreleasepool {
+            let urlCell = row.cells[safe: urlColumnIndex - 1]
+            let nameCell = row.cells[safe: nameColumnIndex - 1]
+            
+            guard let urlValue = getCellValue(urlCell, sharedStrings: sharedStrings) else {
+                addLog("URL单元格为空，跳过第\(rowIndex + 2)行")
                 return
             }
-            incrementActiveDownloads()
-            downloadImage(url: url, fileName: nameValue, savePath: savePath) { result in
-                switch result {
-                case .success(let filePath):
-                    self.addLog("图片下载成功: \(filePath)")
-                case .failure(let error):
-                    self.addLog("图片下载失败: \(error.localizedDescription)")
+            
+            guard let rawNameValue = getCellValue(nameCell, sharedStrings: sharedStrings) else {
+                addLog("文件名单元格为空，跳过第\(rowIndex + 2)行")
+                return
+            }
+            
+            let nameValue = sanitizeFileName(rawNameValue)
+            
+            addLog("处理第\(rowIndex + 2)行: URL=\(urlValue), 文件名=\(nameValue)")
+            
+            if isValidURL(urlValue) {
+                guard let url = URL(string: urlValue) else {
+                    addLog("无效的URL: \(urlValue)")
+                    return
                 }
-                self.decrementActiveDownloads()
+                incrementActiveDownloads()
+                downloadImage(url: url, fileName: nameValue, savePath: savePath) { result in
+                    switch result {
+                    case .success(let filePath):
+                        self.addLog("图片下载成功: \(filePath)")
+                    case .failure(let error):
+                        self.addLog("图片下载失败: \(error.localizedDescription)")
+                        if let urlError = error as? URLError {
+                            self.handleURLError(urlError, for: url)
+                        } else {
+                            self.handleGeneralError(error)
+                        }
+                    }
+                    self.decrementActiveDownloads()
+                }
+            } else {
+                addLog("无效的URL: \(urlValue)")
+            }
+        }
+    }
+    
+    private func handleURLError(_ error: URLError, for url: URL) {
+        switch error.code {
+        case .notConnectedToInternet:
+            addLog("网络连接错误: 请检查您的网络连接")
+        case .timedOut:
+            addLog("请求超时: \(url)")
+        case .cannotFindHost:
+            addLog("无法找到主机: \(url)")
+        case .cannotConnectToHost:
+            addLog("无法连接到主机: \(url)")
+        case .networkConnectionLost:
+            addLog("网络连接中断: \(url)")
+        case .dnsLookupFailed:
+            addLog("DNS查找失败: \(url)")
+        case .resourceUnavailable:
+            addLog("资源不可用: \(url)")
+        case .notConnectedToInternet:
+            addLog("未连接到互联网")
+        case .secureConnectionFailed:
+            addLog("安全连接失败: \(url)")
+        case .serverCertificateUntrusted:
+            addLog("服务器证书不受信任: \(url)")
+        case .clientCertificateRejected:
+            addLog("客户端证书被拒绝: \(url)")
+        default:
+            addLog("URL错误: \(error.localizedDescription)")
+        }
+    }
+    
+    private func handleGeneralError(_ error: Error) {
+        if let nsError = error as NSError? {
+            switch nsError.domain {
+            case NSCocoaErrorDomain:
+                addLog("Cocoa错误: \(nsError.localizedDescription)")
+            case NSPOSIXErrorDomain:
+                addLog("POSIX错误: \(nsError.localizedDescription)")
+            case NSOSStatusErrorDomain:
+                addLog("OS状态错误: \(nsError.localizedDescription)")
+            case NSMachErrorDomain:
+                addLog("Mach错误: \(nsError.localizedDescription)")
+            default:
+                addLog("未知错误: \(nsError.localizedDescription)")
             }
         } else {
-            addLog("无效的URL: \(urlValue)")
+            addLog("一般错误: \(error.localizedDescription)")
         }
+    }
+    
+    private func downloadImage(url: URL, fileName: String, savePath: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
+            defer {
+                self.taskCache.removeObject(forKey: url as NSURL)
+            }
+            
+            autoreleasepool {
+                if let error = error {
+                    self.addLog("下载失败 (\(fileName)): \(error.localizedDescription)")
+                    if let urlError = error as? URLError, urlError.code == .cancelled {
+                        self.addLog("下载被取消 (\(fileName))，尝试重新下载")
+                        self.retryDownload(url: url, fileName: fileName, savePath: savePath, completion: completion)
+                    } else {
+                        completion(.failure(error))
+                    }
+                    return
+                }
+                
+                guard let data = data, let response = response as? HTTPURLResponse else {
+                    completion(.failure(NSError(domain: "DownloadError", code: 0, userInfo: [NSLocalizedDescriptionKey: "No data or invalid response"])))
+                    return
+                }
+                
+                let fileManager = FileManager.default
+                var filePath = (savePath as NSString).appendingPathComponent(fileName)
+                
+                // 确定文件扩展名
+                var fileExtension = "jpg" // 默认扩展名
+                if let mimeType = response.mimeType {
+                    switch mimeType {
+                    case "image/jpeg":
+                        fileExtension = "jpg"
+                    case "image/png":
+                        fileExtension = "png"
+                    case "image/gif":
+                        fileExtension = "gif"
+                    case "image/webp":
+                        fileExtension = "webp"
+                    default:
+                        fileExtension = "jpg"
+                    }
+                } 
+                
+                // 如果文件名已经包含扩展名，就不再添加
+                if !fileName.lowercased().hasSuffix(".\(fileExtension)") {
+                    filePath += ".\(fileExtension)"
+                }
+                
+                let fileURL = URL(fileURLWithPath: filePath)
+                
+                do {
+                    try data.write(to: fileURL)
+                    DispatchQueue.main.async {
+                        self.previewImagePath = filePath
+                    }
+                    completion(.success(filePath))
+                } catch {
+                    self.addLog("文件写入失败: \(error.localizedDescription)")
+                    completion(.failure(error))
+                }
+            }
+        }
+        
+        taskCache.setObject(task, forKey: url as NSURL)
+        task.resume()
     }
     
     private func incrementActiveDownloads() {
@@ -134,68 +258,6 @@ class DownloadManager: ObservableObject {
             self.startTime = nil
             self.addLog("所有下载任务执行完毕")
         }
-    }
-    
-    private func downloadImage(url: URL, fileName: String, savePath: String, completion: @escaping (Result<String, Error>) -> Void) {
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self else { return }
-
-            if let error = error {
-                self.addLog("下载失败 (\(fileName)): \(error.localizedDescription)")
-                if let urlError = error as? URLError, urlError.code == .cancelled {
-                    self.addLog("下载被取消 (\(fileName))，尝试重新下载")
-                    self.retryDownload(url: url, fileName: fileName, savePath: savePath, completion: completion)
-                } else {
-                    completion(.failure(error))
-                }
-                return
-            }
-            
-            guard let data = data, let response = response as? HTTPURLResponse else {
-                completion(.failure(NSError(domain: "DownloadError", code: 0, userInfo: [NSLocalizedDescriptionKey: "No data or invalid response"])))
-                return
-            }
-            
-            let fileManager = FileManager.default
-            var filePath = (savePath as NSString).appendingPathComponent(fileName)
-            
-            // 确定文件扩展名
-            var fileExtension = "jpg" // 默认扩展名
-            if let mimeType = response.mimeType {
-                switch mimeType {
-                case "image/jpeg":
-                    fileExtension = "jpg"
-                case "image/png":
-                    fileExtension = "png"
-                case "image/gif":
-                    fileExtension = "gif"
-                case "image/webp":
-                    fileExtension = "webp"
-                default:
-                    fileExtension = "jpg"
-                }
-            } 
-            
-            // 如果文件名已经包含扩展名，就不再添加
-            if !fileName.lowercased().hasSuffix(".\(fileExtension)") {
-                filePath += ".\(fileExtension)"
-            }
-            
-            let fileURL = URL(fileURLWithPath: filePath)
-            
-            do {
-                try data.write(to: fileURL)
-                DispatchQueue.main.async {
-                    self.previewImagePath = filePath
-                }
-                completion(.success(filePath))
-            } catch {
-                completion(.failure(error))
-            }
-        }
-        
-        downloadTasks.append(task)
-        task.resume()
     }
     
     private func retryDownload(url: URL, fileName: String, savePath: String, completion: @escaping (Result<String, Error>) -> Void) {
@@ -232,23 +294,21 @@ class DownloadManager: ObservableObject {
     func cancelDownload() {
         isTaskCancelled = true
         addLog("用户手动取消下载任务")
-        // 不再立即取消所有任务，而是标记为取消状态
         
-        queue.async { [weak self] in
-            self?.isDownloading = false
-            self?.addLog("下载任务已取消，正在完成当前进行中的下载")
+        downloadQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.cancelAllDownloadTasks()
+            self.isDownloading = false
+            self.addLog("下载任务已取消，正在完成当前进行中的下载")
         }
     }
     
     private func cancelAllDownloadTasks() {
-        downloadTasks.forEach { $0.cancel() }
-        downloadTasks.removeAll()
-        retryCount.removeAll()
+        taskCache.removeAllObjects()
     }
 
     func reset() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // 取消所有下载任务
+        downloadQueue.async { [weak self] in
             self?.cancelAllDownloadTasks()
             
             DispatchQueue.main.async {
