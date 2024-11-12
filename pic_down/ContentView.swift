@@ -332,22 +332,36 @@ class DownloadManager: ObservableObject {
     private func getCellValue(_ cell: Cell?, sharedStrings: SharedStrings?) -> String? {
         guard let cell = cell else { return nil }
         
+        // 修改这里：优先处理数字类型的值
         if let value = cell.value {
-            if let index = Int(value),
+            // 如果是共享字符串引用
+            if cell.type == .sharedString,
+               let index = Int(value),
                let sharedStrings = sharedStrings,
                let string = sharedStrings.items[safe: index]?.text {
                 return string
             }
-            return value
-        } else if let formula = cell.formula {
-            return "公式: \(formula.value)"
-        } else if let inlineString = cell.inlineString {
-            return inlineString.text
-        } else if let dateValue = cell.dateValue {
-            return "期值: \(dateValue)"
-        } else {
-            return nil
+            // 如果是数字，直接返回值
+            else if cell.type == .number {
+                return value
+            }
+            // 其他类型的值直接返回
+            else {
+                return value
+            }
         }
+        // 处理其他类型的单元格
+        else if let formula = cell.formula {
+            return formula.value
+        }
+        else if let inlineString = cell.inlineString {
+            return inlineString.text
+        }
+        else if let dateValue = cell.dateValue {
+            return "\(dateValue)"
+        }
+        
+        return nil
     }
     
     private func sanitizeFileName(_ fileName: String) -> String {
@@ -638,7 +652,12 @@ struct ContentView: View {
             downloadManager.addLog("URL列索引: \(urlColumnIndex), 文件名列索引: \(nameColumnIndex)")
             
             if let rows = worksheet.data?.rows {
-                downloadManager.startDownload(rows: Array(rows.dropFirst()), urlColumnIndex: urlColumnIndex, nameColumnIndex: nameColumnIndex, sharedStrings: sharedStrings, savePath: savePath)
+                let dataRows = Array(rows.dropFirst())
+                if dataRows.isEmpty {
+                    showError("Excel文件中没有数据行")
+                    return
+                }
+                downloadManager.startDownload(rows: dataRows, urlColumnIndex: urlColumnIndex, nameColumnIndex: nameColumnIndex, sharedStrings: sharedStrings, savePath: savePath)
             } else {
                 showError("工作表中没有数据")
             }
